@@ -11,7 +11,7 @@ SCSS (Sass-style CSS) custom syntax in CSSTree format.
 ## Installation
 
 ```shell
-npm install scsstree
+npm install @humanwhocodes/scsstree
 ```
 
 ## Usage
@@ -23,7 +23,7 @@ This package exports the following object:
 You can import it like this:
 
 ```js
-import { scss } from "scsstree";
+import { scss } from "@humanwhocodes/scsstree";
 ```
 
 ### Use with ESLint CSS Plugin
@@ -34,7 +34,7 @@ To use this package with the [ESLint CSS plugin](https://github.com/eslint/css),
 // eslint.config.js
 import { defineConfig } from "eslint/config";
 import css from "@eslint/css";
-import { scss } from "scsstree";
+import { scss } from "@humanwhocodes/scsstree";
 
 export default defineConfig([
 	{
@@ -61,7 +61,7 @@ If you're using [CSSTree](https://github.com/eslint/csstree) directly, pass `scs
 
 ```js
 import { fork } from "@eslint/css-tree";
-import { scss } from "scsstree";
+import { scss } from "@humanwhocodes/scsstree";
 
 const { parse, toPlainObject } = fork(scss);
 
