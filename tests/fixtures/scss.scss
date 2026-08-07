@@ -1,0 +1,139 @@
+// Module system
+@use "sass:math";
+@use "sass:map" as map;
+@use "./config" with (
+	$primary: #333,
+	$spacing: 8px
+);
+@forward "src/list" hide list-reset, $horizontal-list-gap;
+@forward "src/theme" as theme-*;
+@import "reset", "typography";
+
+/* Variables */
+$primary: #333 !default;
+$spacing: 8px;
+$breakpoints: (
+	"small": 576px,
+	"medium": 768px,
+	"large": 992px,
+);
+
+// Placeholder selectors
+%button-base {
+	border: 0;
+	cursor: pointer;
+}
+
+// Mixins
+@mixin theme($theme: DarkGray) {
+	background: $theme;
+	box-shadow: 0 0 1px rgba($theme, 0.25);
+
+	.inner {
+		color: $primary;
+	}
+}
+
+@mixin respond-to($breakpoint) {
+	@if map.has-key($breakpoints, $breakpoint) {
+		@media (min-width: map.get($breakpoints, $breakpoint)) {
+			@content;
+		}
+	} @else {
+		@warn "Unknown breakpoint: #{$breakpoint}.";
+	}
+}
+
+@mixin list($args...) {
+	@include other($args...);
+}
+
+// Functions
+@function pow($base, $exponent) {
+	$result: 1;
+
+	@for $_ from 1 through $exponent {
+		$result: $result * $base;
+	}
+
+	@return $result;
+}
+
+@function halve($value) {
+	@return math.div($value, 2);
+}
+
+// Nesting, parent selectors, and interpolation
+.card {
+	@extend %button-base;
+	@include theme($theme: DarkGray);
+
+	padding: $spacing halve($spacing);
+	width: calc(100% - #{$spacing});
+
+	&__title {
+		font: {
+			family: serif;
+			size: 30em;
+		}
+	}
+
+	&:hover {
+		background: lighten($primary, 10%);
+	}
+
+	> .child + .sibling ~ .other {
+		color: $primary;
+	}
+
+	@include respond-to("medium") {
+		padding: $spacing * 2;
+	}
+}
+
+// Control directives
+@each $name, $glyph in $icons {
+	.icon-#{$name}:before {
+		content: $glyph;
+	}
+}
+
+@while $i > 0 {
+	.item-#{$i} {
+		width: 2em * $i;
+	}
+
+	$i: $i - 2;
+}
+
+.conditional {
+	@if $primary == #333 {
+		color: red;
+	} @else if $primary != #444 {
+		color: blue;
+	} @else {
+		color: green;
+	}
+}
+
+// @at-root and @extend
+@at-root .detached {
+	color: $primary;
+}
+
+.optional {
+	@extend .missing !optional;
+}
+
+// Plain CSS still works
+@media screen and (min-width: 400px), print {
+	.a[data-x="y"]:not(.b)::after {
+		content: "";
+		grid-area: 1 / 2 / 3 / 4;
+		background: url("images/#{$primary}.png") no-repeat;
+	}
+}
+
+:root {
+	--custom-property: 1px;
+}
