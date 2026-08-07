@@ -1,6 +1,6 @@
 {
   "name": "@humanwhocodes/scsstree",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "CSSTree syntax for parsing SCSS (Sass) custom syntax.",
   "type": "module",
   "main": "dist/index.js",
