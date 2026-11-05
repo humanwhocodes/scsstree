@@ -57,6 +57,12 @@ const comparisonStarts = new Set([
 	EXCLAMATION_MARK,
 ]);
 
+// Validates Number, Dimension, and `-` tokens that continue an interpolated
+// name. Those tokens can contain name characters, but also punctuation that
+// must be escaped in a name. Hex escapes may include a terminating whitespace.
+const identifierFragment =
+	/^(?:[-\w\u0080-\u{10ffff}]|\\(?:[a-fA-F0-9]{1,6}(?:\r\n|[ \t\n\r\f])?|[^\n\r\f]))+$/u;
+
 /**
  * Reads a fixed number of adjacent tokens as a single `Operator` node.
  * @this {any}
@@ -140,6 +146,100 @@ function readNamespacedFunction(context) {
 		name: `${namespace}.${fn.name}`,
 		children: fn.children,
 	};
+}
+
+/**
+ * Reads an identifier-like token sequence that may include interpolation, such
+ * as `--#{$prefix}form-invalid-border-color`.
+ * @this {any}
+ * @returns {any} The `Identifier` node.
+ */
+function readInterpolatedIdentifier() {
+	const start = this.tokenStart;
+
+	const startsWithHyphenInterpolation =
+		this.isDelim(HYPHEN_MINUS) &&
+		isInterpolationStart(this, 1) &&
+		this.getTokenStart(this.tokenIndex + 1) === this.tokenEnd;
+
+	if (
+		this.tokenType !== tokenTypes.Ident &&
+		!isInterpolationStart(this) &&
+		!startsWithHyphenInterpolation
+	) {
+		this.error("Identifier is expected");
+	}
+
+	do {
+		if (isInterpolationStart(this)) {
+			if (this.getBlockTokenPairIndex(this.tokenIndex + 1) === -1) {
+				this.error("Unterminated interpolation");
+			}
+
+			this.ScssInterpolation();
+		} else {
+			this.next();
+		}
+	} while (
+		this.tokenType === tokenTypes.Ident ||
+		isInterpolationStart(this) ||
+		((this.tokenType === tokenTypes.Number ||
+			this.tokenType === tokenTypes.Dimension ||
+			this.isDelim(HYPHEN_MINUS)) &&
+			identifierFragment.test(
+				this.substring(this.tokenStart, this.tokenEnd),
+			))
+	);
+
+	return {
+		type: "Identifier",
+		loc: this.getLocation(start, this.tokenStart),
+		name: this.substrToCursor(start),
+	};
+}
+
+/**
+ * Parses `var()` arguments, allowing the custom property name to contain
+ * interpolation.
+ * @this {any}
+ * @returns {any} The child nodes for the `var()` function.
+ */
+function readVarFunction() {
+	const children = this.createList();
+
+	this.skipSC();
+	children.push(readInterpolatedIdentifier.call(this));
+	this.skipSC();
+
+	if (this.tokenType === tokenTypes.Comma) {
+		children.push(this.Operator());
+
+		const startIndex = this.tokenIndex;
+		const value = this.parseCustomProperty
+			? this.Value(null)
+			: this.Raw(this.consumeUntilExclamationMarkOrSemicolon, false);
+
+		if (value.type === "Value" && value.children.isEmpty) {
+			for (
+				let offset = startIndex - this.tokenIndex;
+				offset <= 0;
+				offset++
+			) {
+				if (this.lookupType(offset) === tokenTypes.WhiteSpace) {
+					value.children.appendData({
+						type: "WhiteSpace",
+						loc: null,
+						value: " ",
+					});
+					break;
+				}
+			}
+		}
+
+		children.push(value);
+	}
+
+	return children;
 }
 
 /**
@@ -304,5 +404,6 @@ export function createValueScope(previous) {
 		...previous,
 		getNode,
 		onWhiteSpace,
+		var: readVarFunction,
 	};
 }

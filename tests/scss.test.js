@@ -59,13 +59,14 @@ describe("SCSS", () => {
 	/**
 	 * Asserts that source text parses and regenerates to a stable result.
 	 * @param {string} code The source text to parse.
+	 * @param {object} [options] Options to pass to the parser.
 	 * @returns {any} The generated text.
 	 */
-	function roundTrip(code) {
-		const output = generate(strictParse(code));
+	function roundTrip(code, options = {}) {
+		const output = generate(strictParse(code, options));
 
 		assert.strictEqual(
-			generate(strictParse(output)),
+			generate(strictParse(output, options)),
 			output,
 			`Generated output did not reparse to itself: ${output}`,
 		);
@@ -323,6 +324,173 @@ describe("SCSS", () => {
 				roundTrip(".a { width: calc(100% - #{$gutter}); }"),
 				".a{width:calc(100% - #{$gutter})}",
 			);
+		});
+
+		it("should parse interpolation in a var() custom property name", () => {
+			assert.strictEqual(
+				roundTrip(
+					".a { border-color: var(--#{$prefix}form-invalid-border-color); }",
+				),
+				".a{border-color:var(--#{$prefix}form-invalid-border-color)}",
+			);
+		});
+	});
+
+	describe("var()", () => {
+		const names = [
+			"--#{$prefix}form-invalid-border-color",
+			"--#{$prefix}2-color",
+			"--#{$prefix}-#{$name}",
+			"--#{$prefix}2",
+			"--#{$prefix}-",
+			"--#{$prefix}-2-color",
+			"--#{$prefix}2e3",
+			"--#{$prefix}2e-3",
+			"--#{$prefix}1E-2px",
+			"--#{$prefix}#{$name}",
+			"#{$name}",
+			'-#{"-theme-color"}',
+			"-#{$name}-color",
+			"-#{$a}#{$b}",
+			'--#{"a b"}color',
+			"--#{map.get($map, name)}-2",
+			"--#{$prefix}2\\.x",
+			"--#{$prefix}2\\32 color",
+			"--#{$prefix}2\\000032 color",
+			"--#{$prefix}2\\32\r\ncolor",
+			"--#{$prefix}2\\+x",
+			"--#{$prefix}\\32 color",
+			"--#{$prefix}\u00e9",
+			"--#{$prefix}2\u{1f600}",
+		];
+
+		for (const name of names) {
+			it(`should preserve the interpolated name ${name}`, () => {
+				const code = `.a { color: var(${name}); }`;
+
+				for (const parseCustomProperty of [false, true]) {
+					assert.strictEqual(
+						roundTrip(code, { parseCustomProperty }),
+						`.a{color:var(${name})}`,
+					);
+				}
+
+				const ast = strictParse(code, { positions: true });
+				const value = ast.children.first.block.children.first.value;
+				const fn = value.children.first;
+				const identifier = fn.children.first;
+				const start = code.indexOf(name);
+
+				assert.strictEqual(value.type, "Value");
+				assert.strictEqual(fn.type, "Function");
+				assert.strictEqual(fn.name, "var");
+				assert.strictEqual(fn.children.size, 1);
+				assert.strictEqual(identifier.type, "Identifier");
+				assert.strictEqual(identifier.name, name);
+				assert.strictEqual(identifier.loc.start.offset, start);
+				assert.strictEqual(
+					identifier.loc.end.offset,
+					start + name.length,
+				);
+				assert.strictEqual(lexer.checkStructure(ast), false);
+			});
+		}
+
+		const invalid = [
+			"var(--#{$prefix}+2)",
+			"var(--#{$prefix}2.5px)",
+			"var(--#{$prefix}2%)",
+			"var(--#{$prefix}2e+3)",
+			"var(--#{$prefix}1E+2px)",
+			"var(--#{$prefix} color)",
+			"var(--#{$prefix}/**/color)",
+			"var(--#{$prefix}2/**/color)",
+			"var(--#{$prefix}2\\32  color)",
+			"var(--#{$prefix}2\\\ncolor)",
+			"var(--#{foo)})",
+			"var(--#{$prefix)",
+			"var()",
+			"var(2)",
+			"var(-)",
+			"var(-2)",
+			"var(- #{$name})",
+			"var(-/**/#{$name})",
+			"var(-#{$name)",
+			"var(--foo --bar)",
+		];
+
+		for (const value of invalid) {
+			it(`should reject ${value}`, () => {
+				for (const parseCustomProperty of [false, true]) {
+					assert.throws(() =>
+						strictParse(`.a { color: ${value}; }`, {
+							parseCustomProperty,
+						}),
+					);
+				}
+			});
+		}
+
+		it("should not accept a following declaration inside malformed interpolation", () => {
+			assert.throws(() =>
+				strictParse("a{color:var(--#{foo); width:1px}"),
+			);
+		});
+
+		const fallbacks = [
+			["red", "red"],
+			["var(--#{$prefix}2-color, red)", "var(--#{$prefix}2-color,red)"],
+			["$fallback", "$fallback"],
+			["#{$fallback}", "#{$fallback}"],
+			["", ""],
+			[" ", " "],
+		];
+
+		for (const [fallback, parsedFallback] of fallbacks) {
+			it(`should preserve fallback ${JSON.stringify(fallback)}`, () => {
+				const name = "--#{$prefix}2-color";
+				const code = `.a { color: var(${name},${fallback}); }`;
+
+				for (const parseCustomProperty of [false, true]) {
+					const options = { parseCustomProperty };
+					const expected = parseCustomProperty
+						? parsedFallback
+						: fallback;
+					assert.strictEqual(
+						roundTrip(code, options),
+						`.a{color:var(${name},${expected})}`,
+					);
+
+					const fn = strictParse(code, options).children.first.block
+						.children.first.value.children.first;
+					assert.strictEqual(fn.children.size, 3);
+					assert.strictEqual(
+						fn.children.last.type,
+						parseCustomProperty ? "Value" : "Raw",
+					);
+				}
+			});
+		}
+
+		it("should validate interpolated names inside parsed fallbacks", () => {
+			assert.throws(() =>
+				strictParse(".a { color: var(--foo, var(--#{$prefix}+2)); }", {
+					parseCustomProperty: true,
+				}),
+			);
+		});
+
+		it("should preserve ordinary CSS var() behavior", () => {
+			const code =
+				".a { color: VAR(/**/--foo/**/, ); width: var(--foo, var(--bar, 1px)); }";
+
+			for (const parseCustomProperty of [false, true]) {
+				const options = { parseCustomProperty };
+				assert.strictEqual(
+					roundTrip(code, options),
+					cssGenerate(cssParse(code, options)),
+				);
+			}
 		});
 	});
 
