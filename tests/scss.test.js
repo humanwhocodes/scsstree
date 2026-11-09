@@ -625,6 +625,26 @@ describe("SCSS", () => {
 				"#{$prefix}1",
 				["ClassSelector", "Combinator", "ClassSelector"],
 			],
+			[
+				".#{$prefix}-2\u00e9:hover",
+				"#{$prefix}-2\u00e9",
+				["ClassSelector", "PseudoClassSelector"],
+			],
+			[
+				String.raw`.#{$prefix}-2\78:hover`,
+				String.raw`#{$prefix}-2\78`,
+				["ClassSelector", "PseudoClassSelector"],
+			],
+			[
+				String.raw`.#{$prefix}-2\000078 :hover`,
+				String.raw`#{$prefix}-2\000078 `,
+				["ClassSelector", "PseudoClassSelector"],
+			],
+			[
+				".#{$prefix}1e2\u00e9.b",
+				"#{$prefix}1e2\u00e9",
+				["ClassSelector", "ClassSelector"],
+			],
 		]) {
 			it(`should preserve selector boundaries around ${selector} (#3)`, () => {
 				const code = `${selector} { color: red; }`;
@@ -648,6 +668,7 @@ describe("SCSS", () => {
 			".#{$name}-#{$other",
 			".#{$name}-1.5",
 			".#{$name}+1",
+			".#{$name}1e+2",
 		]) {
 			it(`should reject incomplete class selector ${selector} (#3)`, () => {
 				assert.throws(() => strictParse(`${selector} { color: red; }`));

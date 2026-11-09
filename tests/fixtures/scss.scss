@@ -76,6 +76,10 @@ $breakpoints: (
 	font-size: 2em;
 }
 
+.#{$prefix}-2\78:hover {
+	color: $primary;
+}
+
 .card {
 	@extend %button-base;
 	@include theme($theme: DarkGray);

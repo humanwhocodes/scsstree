@@ -46,6 +46,11 @@ function isAdjacent(parser, offset) {
 // Exports
 //-----------------------------------------------------------------------------
 
+// Numeric tokens continuing an interpolated name must contain only name
+// characters or CSS escapes, whose hex form may end with whitespace.
+export const identifierFragment =
+	/^(?:[-\w\u0080-\u{10ffff}]|\\(?:[a-fA-F0-9]{1,6}(?:\r\n|[ \t\n\r\f])?|[^\n\r\f]))+$/u;
+
 /**
  * Determines if the parser is positioned at the start of an interpolation
  * such as `#{$name}`.

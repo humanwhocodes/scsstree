@@ -112,6 +112,9 @@ A `$name: value` assignment is deliberately **not** a `Declaration`, because it 
 
 Namespaced function calls are regular `Function` nodes whose `name` includes the namespace, so `math.div(1, 2)` has the name `math.div`.
 
+Interpolated class names remain a single `ClassSelector`, including numeric
+suffixes containing non-ASCII characters or CSS escapes, such as `.#{$prefix}-2\78`.
+
 Conditional at-rules (`@media`, `@supports`, and `@container`) inside a style rule
 can contain both declarations and nested rules. Grouped query expressions are
 nested `Condition` nodes. Container query functions such as `style()` and
