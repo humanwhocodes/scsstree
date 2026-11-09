@@ -895,6 +895,106 @@ describe("SCSS", () => {
 	});
 
 	describe("Media queries", () => {
+		for (const query of [
+			"@supports (not (display: grid))",
+			"@supports (display: grid) and (not (display: inline-grid))",
+			"@supports ((display: grid) and (not (display: flex)))",
+			"@supports (selector(.a > .b) or (display: grid))",
+			"@media ((min-width: 10px) or (max-width: 5px))",
+		]) {
+			it(`should preserve nested condition structure in ${query} (#5)`, () => {
+				const code = `${query} { .a { color: red; } }`;
+				const ast = strictParse(code);
+				const types = [];
+
+				walk(ast, node => types.push(node.type));
+				assert.ok(
+					types.filter(type => type === "Condition").length >= 2,
+				);
+				assert.ok(!types.includes("Raw"));
+				assert.strictEqual(lexer.checkStructure(ast), false);
+				roundTrip(code);
+			});
+		}
+
+		for (const query of [
+			"@container theme style(--theme: $theme)",
+			"@container style(--theme: dark) and scroll-state(stuck: top)",
+			"@container (style(--theme: dark) or scroll-state(stuck: top))",
+			"@container unknown-feature(foo: bar)",
+		]) {
+			it(`should preserve container general-enclosed functions in ${query} (#6)`, () => {
+				const code = `${query} { .a { color: red; } }`;
+				const ast = strictParse(code);
+				const functions = [];
+
+				walk(ast, {
+					visit: "GeneralEnclosed",
+					enter(node) {
+						functions.push(node);
+					},
+				});
+				assert.ok(functions.length > 0);
+				assert.strictEqual(lexer.checkStructure(ast), false);
+				roundTrip(code);
+			});
+		}
+
+		it("should preserve registered supports feature functions (#6)", () => {
+			const node = findNode(
+				"@supports selector(.a > .b) { .a { color: red; } }",
+				"FeatureFunction",
+			);
+
+			assert.strictEqual(node.kind, "supports");
+			assert.strictEqual(node.feature, "selector");
+			assert.strictEqual(node.value.type, "Selector");
+		});
+
+		for (const query of [
+			"@supports ((display grid))",
+			"@container style(--theme: dark])",
+		]) {
+			it(`should still report malformed conditions in ${query} (#5/#6)`, () => {
+				assert.throws(() =>
+					strictParse(`${query} { .a { color: red; } }`),
+				);
+			});
+		}
+
+		it("should parse grouped supports conditions without recovery (#5)", () => {
+			const code =
+				"@supports ((display: grid) or (display: flex)) { .a { color: red; } }";
+			const ast = strictParse(code);
+			const condition = ast.children.first.prelude.children.first;
+			const group = condition.children.first;
+
+			assert.strictEqual(group.type, "Condition");
+			assert.deepStrictEqual(
+				group.children.toArray().map(node => node.type),
+				["SupportsDeclaration", "Identifier", "SupportsDeclaration"],
+			);
+			assert.strictEqual(group.children.toArray()[1].name, "or");
+			assert.strictEqual(
+				roundTrip(code),
+				"@supports ((display:grid) or (display:flex)){.a{color:red}}",
+			);
+		});
+
+		for (const fn of ["style(--theme: dark)", "scroll-state(stuck: top)"]) {
+			it(`should parse container ${fn} as general enclosed without recovery (#6)`, () => {
+				const code = `@container ${fn} { .a { color: red; } }`;
+				const ast = strictParse(code);
+				const term =
+					ast.children.first.prelude.children.first.children.first;
+
+				assert.strictEqual(term.type, "GeneralEnclosed");
+				assert.strictEqual(term.kind, "container");
+				assert.strictEqual(term.function, fn.slice(0, fn.indexOf("(")));
+				roundTrip(code);
+			});
+		}
+
 		const queries = [
 			[
 				"@media (min-width: $w) { .a { b: c; } }",
@@ -1009,7 +1109,6 @@ describe("SCSS", () => {
 			"@media screen and (min-width: 100px), print { .a > .b + .c ~ .d { color: red; } }",
 			":root { --x: 1px; --y: { a: b }; }",
 			'a:not(.b):nth-child(2n+1)::after { content: "x"; }',
-			"@supports (display: grid) and (not (display: inline-grid)) { .a { color: red } }",
 			'@font-face { font-family: "X"; src: url(a.woff2) format("woff2"); }',
 			"@keyframes spin { from { transform: rotate(0) } to { transform: rotate(360deg) } }",
 			".hack { *zoom: 1; }",
@@ -1033,18 +1132,20 @@ describe("SCSS", () => {
 		it("should recover from the same things as plain CSS", () => {
 			const scssErrors = [];
 			const cssErrors = [];
+			const code = `${css}\n.broken { color red; }`;
 
-			parse(css, {
+			parse(code, {
 				onParseError(error) {
 					scssErrors.push(error.message);
 				},
 			});
-			cssParse(css, {
+			cssParse(code, {
 				onParseError(error) {
 					cssErrors.push(error.message);
 				},
 			});
 
+			assert.ok(scssErrors.length > 0);
 			assert.deepStrictEqual(scssErrors, cssErrors);
 		});
 	});

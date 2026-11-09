@@ -281,6 +281,70 @@ describe("ESLint CSS plugin compatibility", () => {
 		);
 	});
 
+	for (const [query, nodeType] of [
+		["supports ((display: grid) or (display: flex))", "Condition"],
+		["container style(--theme: dark)", "GeneralEnclosed"],
+		["container scroll-state(stuck: top)", "GeneralEnclosed"],
+	]) {
+		it(`should parse condition grammar with definition-only input: @${query} (#5/#6)`, async () => {
+			const code = `@${query} { .a { color: red; } }`;
+			const ast = strictParse(code);
+			const term =
+				ast.children.first.prelude.children.first.children.first;
+			const output = generate(ast);
+
+			assert.strictEqual(term.type, nodeType);
+			assert.strictEqual(lexer.checkStructure(ast), false);
+			assert.strictEqual(generate(strictParse(output)), output);
+
+			const eslint = new ESLint({
+				overrideConfigFile: true,
+				overrideConfig: [
+					{
+						files: ["**/*.scss"],
+						plugins: { css },
+						language: "css/css",
+						languageOptions: { customSyntax: scss },
+					},
+				],
+			});
+			const [result] = await eslint.lintText(code, {
+				filePath: "test.scss",
+			});
+
+			assert.deepStrictEqual(result.messages, []);
+		});
+	}
+
+	for (const code of [
+		'// unmatched " quote\n.a { color: red; }',
+		".#{$prefix}-#{$name} { color: red; }",
+		".parent { @media (min-width: 10px) { color: blue; .child { color: red; } } }",
+		".parent { @supports (display: grid) { color: blue; .child { color: red; } } }",
+		".parent { @container (min-width: 10px) { color: blue; .child { color: red; } } }",
+		"@supports ((display: grid) or (display: flex)) { .a { color: red; } }",
+		"@container theme style(--theme: dark) { .a { color: red; } }",
+		"@container scroll-state(stuck: top) { .a { color: red; } }",
+	]) {
+		it(`should produce identical ASTs through both syntax input shapes: ${code}`, () => {
+			const direct = fork(scss);
+			const definitionOnly = fork(scss(definitionSyntaxData));
+			const options = {
+				positions: true,
+				onParseError(error) {
+					throw error;
+				},
+			};
+
+			assert.deepStrictEqual(
+				direct.toPlainObject(direct.parse(code, options)),
+				definitionOnly.toPlainObject(
+					definitionOnly.parse(code, options),
+				),
+			);
+		});
+	}
+
 	it("should parse the fixture without errors", async () => {
 		const code = await fs.readFile(fixtureFilename, "utf8");
 		const errors = [];

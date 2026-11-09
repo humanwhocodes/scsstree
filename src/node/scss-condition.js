@@ -30,6 +30,19 @@ const likelyFeatureToken = new Set([
 ]);
 
 /**
+ * Parses a grouped condition without first attempting a declaration or range.
+ * @this {any}
+ * @param {string} kind The kind of condition being parsed.
+ * @returns {any} The nested condition.
+ */
+function nestedCondition(kind) {
+	this.eat(tokenTypes.LeftParenthesis);
+	const result = this.Condition(kind);
+	this.eat(tokenTypes.RightParenthesis);
+	return result;
+}
+
+/**
  * Parses a parenthesized term as either a feature or a feature range.
  * @this {any}
  * @param {string} kind The kind of condition being parsed.
@@ -73,6 +86,8 @@ export const structure = {
 			"FeatureFunction",
 			"FeatureRange",
 			"SupportsDeclaration",
+			"Condition",
+			"GeneralEnclosed",
 			"ScssVariable",
 			"ScssInterpolation",
 		],
@@ -117,6 +132,20 @@ export function parse(kind = "media") {
 				break scan;
 
 			case tokenTypes.LeftParenthesis: {
+				const nextType = this.lookupTypeNonSC(1);
+
+				if (
+					nextType === tokenTypes.LeftParenthesis ||
+					nextType === tokenTypes.Function ||
+					(nextType === tokenTypes.Ident &&
+						(this.lookupTypeNonSC(2) ===
+							tokenTypes.LeftParenthesis ||
+							this.lookupTypeNonSC(2) === tokenTypes.Function))
+				) {
+					children.push(nestedCondition.call(this, kind));
+					break;
+				}
+
 				let term = this.parseWithFallback(
 					() => parentheses[kind].call(this, kind),
 					() => null,
@@ -124,15 +153,7 @@ export function parse(kind = "media") {
 
 				if (!term) {
 					term = this.parseWithFallback(
-						() => {
-							this.eat(tokenTypes.LeftParenthesis);
-
-							const result = this.Condition(kind);
-
-							this.eat(tokenTypes.RightParenthesis);
-
-							return result;
-						},
+						() => nestedCondition.call(this, kind),
 						() => this.GeneralEnclosed(kind),
 					);
 				}
@@ -142,16 +163,19 @@ export function parse(kind = "media") {
 			}
 
 			case tokenTypes.Function: {
-				let term = this.parseWithFallback(
-					() => this.FeatureFunction(kind),
-					() => null,
+				const functionName = this.substring(
+					this.tokenStart,
+					this.tokenEnd - 1,
+				).toLowerCase();
+				const isFeature =
+					kind !== "container" &&
+					typeof this.features[kind]?.[functionName] === "function";
+
+				children.push(
+					isFeature
+						? this.FeatureFunction(kind)
+						: this.GeneralEnclosed(kind),
 				);
-
-				if (!term) {
-					term = this.GeneralEnclosed(kind);
-				}
-
-				children.push(term);
 				break;
 			}
 
