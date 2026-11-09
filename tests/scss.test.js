@@ -917,11 +917,17 @@ describe("SCSS", () => {
 			});
 		}
 
-		for (const query of [
-			"@container theme style(--theme: $theme)",
-			"@container style(--theme: dark) and scroll-state(stuck: top)",
-			"@container (style(--theme: dark) or scroll-state(stuck: top))",
-			"@container unknown-feature(foo: bar)",
+		for (const [query, expected] of [
+			["@container theme style(--theme: $theme)", ["style"]],
+			[
+				"@container style(--theme: dark) and scroll-state(stuck: top)",
+				["style", "scroll-state"],
+			],
+			[
+				"@container (style(--theme: dark) or scroll-state(stuck: top))",
+				["style", "scroll-state"],
+			],
+			["@container unknown-feature(foo: bar)", ["unknown-feature"]],
 		]) {
 			it(`should preserve container general-enclosed functions in ${query} (#6)`, () => {
 				const code = `${query} { .a { color: red; } }`;
@@ -931,14 +937,60 @@ describe("SCSS", () => {
 				walk(ast, {
 					visit: "GeneralEnclosed",
 					enter(node) {
-						functions.push(node);
+						functions.push(node.function);
 					},
 				});
-				assert.ok(functions.length > 0);
+				assert.deepStrictEqual(functions, expected);
 				assert.strictEqual(lexer.checkStructure(ast), false);
 				roundTrip(code);
 			});
 		}
+
+		for (const query of [
+			"@media (calc(1px + 2px) < width)",
+			"@media (min(100px, 10vw) <= width)",
+			"@media (env(safe-area-inset-top) > 10px)",
+			"@media (map-get($bp, md) <= width)",
+			"@media (calc(1px) < width < calc(2px))",
+			"@container (calc(100px) < width)",
+			"@container card (min(100px, 10vw) <= width)",
+		]) {
+			it(`should parse a range starting with a function in ${query}`, () => {
+				const code = `${query} { .a { color: red; } }`;
+				const ast = strictParse(code);
+				const ranges = [];
+
+				walk(ast, {
+					visit: "FeatureRange",
+					enter(node) {
+						ranges.push(node);
+					},
+				});
+				assert.strictEqual(ranges.length, 1);
+				assert.strictEqual(ranges[0].left.type, "Function");
+				assert.strictEqual(lexer.checkStructure(ast), false);
+				roundTrip(code);
+			});
+		}
+
+		it("should keep the valid terms of a condition with a malformed group", () => {
+			const errors = [];
+			const ast = parse(
+				"@supports (display: grid) and (foo(bar): baz) { .a { color: red; } }",
+				{
+					onParseError(error) {
+						errors.push(error);
+					},
+				},
+			);
+			const condition = ast.children.first.prelude.children.first;
+
+			assert.ok(errors.length > 0);
+			assert.deepStrictEqual(
+				condition.children.toArray().map(node => node.type),
+				["SupportsDeclaration", "Identifier", "GeneralEnclosed"],
+			);
+		});
 
 		it("should preserve registered supports feature functions (#6)", () => {
 			const node = findNode(

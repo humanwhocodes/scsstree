@@ -325,6 +325,8 @@ describe("ESLint CSS plugin compatibility", () => {
 		"@supports ((display: grid) or (display: flex)) { .a { color: red; } }",
 		"@container theme style(--theme: dark) { .a { color: red; } }",
 		"@container scroll-state(stuck: top) { .a { color: red; } }",
+		"@media (calc(1px + 2px) < width) { .a { color: red; } }",
+		"@container (min(100px, 10vw) <= width) { .a { color: red; } }",
 	]) {
 		it(`should produce identical ASTs through both syntax input shapes: ${code}`, () => {
 			const direct = fork(scss);
