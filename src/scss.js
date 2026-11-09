@@ -30,7 +30,8 @@ import * as ScssStyleSheet from "./node/scss-stylesheet.js";
 import * as ScssVariable from "./node/scss-variable.js";
 import * as ScssVariableDeclaration from "./node/scss-variable-declaration.js";
 
-import scssBlock from "./atrule/scss-block.js";
+import scssBlock, { conditionalBlock } from "./atrule/scss-block.js";
+import { conditionalPreludes } from "./atrule/scss-conditional.js";
 import scssAtRoot from "./atrule/scss-at-root.js";
 import scssExtend from "./atrule/scss-extend.js";
 import scssImport from "./atrule/scss-import.js";
@@ -107,6 +108,17 @@ export const scss = prev => {
 			parse: {
 				...previous.atrule?.[atruleName]?.parse,
 				block: scssBlock,
+			},
+		};
+	}
+
+	for (const [atruleName, prelude] of Object.entries(conditionalPreludes)) {
+		atrule[atruleName] = {
+			...previous.atrule?.[atruleName],
+			parse: {
+				...previous.atrule?.[atruleName]?.parse,
+				prelude,
+				block: conditionalBlock,
 			},
 		};
 	}

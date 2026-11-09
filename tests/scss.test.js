@@ -104,6 +104,99 @@ describe("SCSS", () => {
 	});
 
 	describe("Comments", () => {
+		for (const quote of ['"', "'"]) {
+			for (const newline of ["\n", "\r\n", "\r", "\f"]) {
+				it(`should preserve the selector after an unmatched ${quote} in a line comment with ${JSON.stringify(newline)} (#2)`, () => {
+					const comment = `// unmatched ${quote} quote`;
+					const code = `${comment}${newline}.a { color: red; }`;
+					const comments = [];
+					const ast = strictParse(code, {
+						positions: true,
+						onComment(value) {
+							comments.push(value);
+						},
+					});
+					assert.ok(
+						ast.children.first,
+						"The rule after the comment must be preserved",
+					);
+					const selector =
+						ast.children.first.prelude.children.first.children
+							.first;
+
+					assert.deepStrictEqual(comments, [
+						` unmatched ${quote} quote`,
+					]);
+					assert.strictEqual(selector.type, "ClassSelector");
+					assert.strictEqual(selector.name, "a");
+					assert.strictEqual(
+						selector.loc.start.offset,
+						comment.length + newline.length,
+					);
+					assert.strictEqual(
+						selector.loc.end.offset,
+						comment.length + newline.length + 2,
+					);
+					assert.strictEqual(generate(ast), ".a{color:red}");
+					assert.strictEqual(roundTrip(code), ".a{color:red}");
+				});
+			}
+		}
+
+		for (const text of ["/*", "url(", '"escaped\\', "'escaped\\"]) {
+			it(`should preserve subsequent lines after ${JSON.stringify(text)} inside a line comment (#2)`, () => {
+				const code = `// ${text}\n// another " comment\n.a { color: red; }\n.b { color: blue; }`;
+				const ast = strictParse(code, { positions: true });
+
+				assert.strictEqual(
+					ast.children.first.loc.start.offset,
+					code.indexOf(".a"),
+				);
+				assert.strictEqual(
+					ast.children.last.loc.start.offset,
+					code.indexOf(".b"),
+				);
+				assert.strictEqual(
+					roundTrip(code),
+					".a{color:red}.b{color:blue}",
+				);
+			});
+		}
+
+		it("should preserve subsequent lines after //* banner comments", () => {
+			const code =
+				"//****\n// Section\n//****\n.a { color: red; }\n.b { color: blue; }";
+			const comments = [];
+			const ast = strictParse(code, {
+				positions: true,
+				onComment(value) {
+					comments.push(value);
+				},
+			});
+
+			assert.deepStrictEqual(comments, ["****", " Section", "****"]);
+			assert.strictEqual(
+				ast.children.first.loc.start.offset,
+				code.indexOf(".a"),
+			);
+			assert.strictEqual(
+				ast.children.last.loc.start.offset,
+				code.indexOf(".b"),
+			);
+			assert.strictEqual(roundTrip(code), ".a{color:red}.b{color:blue}");
+		});
+
+		for (const code of [
+			"//* banner\n.a { color: red; }",
+			"//* closed */\n.a { color: red; }",
+			".a { //* note\n color: red; }",
+			".a { color: red; }\n//*",
+		]) {
+			it(`should treat //* as a line comment in ${JSON.stringify(code)}`, () => {
+				assert.strictEqual(roundTrip(code), ".a{color:red}");
+			});
+		}
+
 		it("should treat // as a comment through the end of the line", () => {
 			assert.strictEqual(
 				roundTrip("// comment\n.a { color: red; }"),
@@ -495,6 +588,113 @@ describe("SCSS", () => {
 	});
 
 	describe("Selectors", () => {
+		for (const [selector, name, types] of [
+			[
+				".#{$prefix}-#{$name} .child",
+				"#{$prefix}-#{$name}",
+				["ClassSelector", "Combinator", "ClassSelector"],
+			],
+			[
+				".#{$prefix}-#{$name}>.child",
+				"#{$prefix}-#{$name}",
+				["ClassSelector", "Combinator", "ClassSelector"],
+			],
+			[
+				".#{$prefix}-#{$name}:hover",
+				"#{$prefix}-#{$name}",
+				["ClassSelector", "PseudoClassSelector"],
+			],
+			[
+				".#{$prefix}-#{$name}/**/.child",
+				"#{$prefix}-#{$name}",
+				["ClassSelector", "ClassSelector"],
+			],
+			[".#{$prefix}-", "#{$prefix}-", ["ClassSelector"]],
+			[
+				".#{$prefix}-2x:hover",
+				"#{$prefix}-2x",
+				["ClassSelector", "PseudoClassSelector"],
+			],
+			[
+				".#{$prefix}-1.b",
+				"#{$prefix}-1",
+				["ClassSelector", "ClassSelector"],
+			],
+			[
+				".#{$prefix}1 > .b",
+				"#{$prefix}1",
+				["ClassSelector", "Combinator", "ClassSelector"],
+			],
+			[
+				".#{$prefix}-2\u00e9:hover",
+				"#{$prefix}-2\u00e9",
+				["ClassSelector", "PseudoClassSelector"],
+			],
+			[
+				String.raw`.#{$prefix}-2\78:hover`,
+				String.raw`#{$prefix}-2\78`,
+				["ClassSelector", "PseudoClassSelector"],
+			],
+			[
+				String.raw`.#{$prefix}-2\000078 :hover`,
+				String.raw`#{$prefix}-2\000078 `,
+				["ClassSelector", "PseudoClassSelector"],
+			],
+			[
+				".#{$prefix}1e2\u00e9.b",
+				"#{$prefix}1e2\u00e9",
+				["ClassSelector", "ClassSelector"],
+			],
+		]) {
+			it(`should preserve selector boundaries around ${selector} (#3)`, () => {
+				const code = `${selector} { color: red; }`;
+				const ast = strictParse(code, { positions: true });
+				const children =
+					ast.children.first.prelude.children.first.children.toArray();
+
+				assert.deepStrictEqual(
+					children.map(node => node.type),
+					types,
+				);
+				assert.strictEqual(children[0].name, name);
+				assert.strictEqual(children[0].loc.end.offset, name.length + 1);
+				roundTrip(code);
+			});
+		}
+
+		for (const selector of [
+			".-",
+			".#{$name}!",
+			".#{$name}-#{$other",
+			".#{$name}-1.5",
+			".#{$name}+1",
+			".#{$name}1e+2",
+		]) {
+			it(`should reject incomplete class selector ${selector} (#3)`, () => {
+				assert.throws(() => strictParse(`${selector} { color: red; }`));
+			});
+		}
+
+		for (const name of [
+			"#{$prefix}-#{$name}",
+			"#{$prefix}-large",
+			"icon-#{$name}-#{$size}",
+			"#{$prefix}-1",
+			"#{$fa-css-prefix}-2x",
+			"#{$prefix}1",
+			"#{$prefix}2x",
+			"#{$prefix}-1-#{$name}",
+			"col-#{$breakpoint}-12",
+		]) {
+			it(`should preserve interpolated class name ${name} without recovery (#3)`, () => {
+				const code = `.${name} { color: red; }`;
+				const node = findNode(code, "ClassSelector");
+
+				assert.strictEqual(node.name, name);
+				assert.strictEqual(roundTrip(code), `.${name}{color:red}`);
+			});
+		}
+
 		it("should parse a placeholder selector", () => {
 			assert.deepStrictEqual(
 				findNode("%button { border: 0; }", "ScssPlaceholderSelector"),
@@ -628,6 +828,67 @@ describe("SCSS", () => {
 	});
 
 	describe("At-rules", () => {
+		for (const query of [
+			"media (min-width: 10px)",
+			"supports (display: grid)",
+			"container (min-width: 10px)",
+		]) {
+			it(`should preserve top-level rule blocks for @${query} (#4)`, () => {
+				const code = `@${query} { .child { color: red; } }`;
+				const ast = strictParse(code);
+
+				assert.strictEqual(
+					ast.children.first.block.children.first.type,
+					"Rule",
+				);
+				roundTrip(code);
+			});
+
+			it(`should preserve mixed and recursively nested blocks for @${query} inside a mixin (#4)`, () => {
+				const code = `@mixin m { @${query} { $color: red; color: $color; &:hover { color: blue; } @supports (display: flex) { .child { color: red; } } } }`;
+				const ast = strictParse(code);
+				const block = ast.children.first.block.children.first.block;
+
+				assert.deepStrictEqual(
+					block.children.toArray().map(node => node.type),
+					[
+						"ScssVariableDeclaration",
+						"Declaration",
+						"Rule",
+						"Atrule",
+					],
+				);
+				assert.strictEqual(
+					block.children.last.block.children.first.type,
+					"Rule",
+				);
+				roundTrip(code);
+			});
+		}
+
+		for (const query of [
+			"media (min-width: 10px)",
+			"supports (display: grid)",
+			"container (min-width: 10px)",
+		]) {
+			it(`should preserve declarations and nested rules inside @${query} (#4)`, () => {
+				const code = `.parent { @${query} { color: blue; .child { color: red; } } }`;
+				const ast = strictParse(code);
+				const block = ast.children.first.block.children.first.block;
+
+				assert.deepStrictEqual(
+					block.children.toArray().map(node => node.type),
+					["Declaration", "Rule"],
+				);
+				assert.strictEqual(
+					block.children.last.prelude.children.first.children.first
+						.name,
+					"child",
+				);
+				roundTrip(code);
+			});
+		}
+
 		const atrules = [
 			['@use "sass:math";', '@use "sass:math";'],
 			['@use "x" as y;', '@use "x"as y;'],
@@ -743,6 +1004,158 @@ describe("SCSS", () => {
 	});
 
 	describe("Media queries", () => {
+		for (const query of [
+			"@supports (not (display: grid))",
+			"@supports (display: grid) and (not (display: inline-grid))",
+			"@supports ((display: grid) and (not (display: flex)))",
+			"@supports (selector(.a > .b) or (display: grid))",
+			"@media ((min-width: 10px) or (max-width: 5px))",
+		]) {
+			it(`should preserve nested condition structure in ${query} (#5)`, () => {
+				const code = `${query} { .a { color: red; } }`;
+				const ast = strictParse(code);
+				const types = [];
+
+				walk(ast, node => types.push(node.type));
+				assert.ok(
+					types.filter(type => type === "Condition").length >= 2,
+				);
+				assert.ok(!types.includes("Raw"));
+				assert.strictEqual(lexer.checkStructure(ast), false);
+				roundTrip(code);
+			});
+		}
+
+		for (const [query, expected] of [
+			["@container theme style(--theme: $theme)", ["style"]],
+			[
+				"@container style(--theme: dark) and scroll-state(stuck: top)",
+				["style", "scroll-state"],
+			],
+			[
+				"@container (style(--theme: dark) or scroll-state(stuck: top))",
+				["style", "scroll-state"],
+			],
+			["@container unknown-feature(foo: bar)", ["unknown-feature"]],
+		]) {
+			it(`should preserve container general-enclosed functions in ${query} (#6)`, () => {
+				const code = `${query} { .a { color: red; } }`;
+				const ast = strictParse(code);
+				const functions = [];
+
+				walk(ast, {
+					visit: "GeneralEnclosed",
+					enter(node) {
+						functions.push(node.function);
+					},
+				});
+				assert.deepStrictEqual(functions, expected);
+				assert.strictEqual(lexer.checkStructure(ast), false);
+				roundTrip(code);
+			});
+		}
+
+		for (const query of [
+			"@media (calc(1px + 2px) < width)",
+			"@media (min(100px, 10vw) <= width)",
+			"@media (env(safe-area-inset-top) > 10px)",
+			"@media (map-get($bp, md) <= width)",
+			"@media (calc(1px) < width < calc(2px))",
+			"@container (calc(100px) < width)",
+			"@container card (min(100px, 10vw) <= width)",
+		]) {
+			it(`should parse a range starting with a function in ${query}`, () => {
+				const code = `${query} { .a { color: red; } }`;
+				const ast = strictParse(code);
+				const ranges = [];
+
+				walk(ast, {
+					visit: "FeatureRange",
+					enter(node) {
+						ranges.push(node);
+					},
+				});
+				assert.strictEqual(ranges.length, 1);
+				assert.strictEqual(ranges[0].left.type, "Function");
+				assert.strictEqual(lexer.checkStructure(ast), false);
+				roundTrip(code);
+			});
+		}
+
+		it("should keep the valid terms of a condition with a malformed group", () => {
+			const errors = [];
+			const ast = parse(
+				"@supports (display: grid) and (foo(bar): baz) { .a { color: red; } }",
+				{
+					onParseError(error) {
+						errors.push(error);
+					},
+				},
+			);
+			const condition = ast.children.first.prelude.children.first;
+
+			assert.ok(errors.length > 0);
+			assert.deepStrictEqual(
+				condition.children.toArray().map(node => node.type),
+				["SupportsDeclaration", "Identifier", "GeneralEnclosed"],
+			);
+		});
+
+		it("should preserve registered supports feature functions (#6)", () => {
+			const node = findNode(
+				"@supports selector(.a > .b) { .a { color: red; } }",
+				"FeatureFunction",
+			);
+
+			assert.strictEqual(node.kind, "supports");
+			assert.strictEqual(node.feature, "selector");
+			assert.strictEqual(node.value.type, "Selector");
+		});
+
+		for (const query of [
+			"@supports ((display grid))",
+			"@container style(--theme: dark])",
+		]) {
+			it(`should still report malformed conditions in ${query} (#5/#6)`, () => {
+				assert.throws(() =>
+					strictParse(`${query} { .a { color: red; } }`),
+				);
+			});
+		}
+
+		it("should parse grouped supports conditions without recovery (#5)", () => {
+			const code =
+				"@supports ((display: grid) or (display: flex)) { .a { color: red; } }";
+			const ast = strictParse(code);
+			const condition = ast.children.first.prelude.children.first;
+			const group = condition.children.first;
+
+			assert.strictEqual(group.type, "Condition");
+			assert.deepStrictEqual(
+				group.children.toArray().map(node => node.type),
+				["SupportsDeclaration", "Identifier", "SupportsDeclaration"],
+			);
+			assert.strictEqual(group.children.toArray()[1].name, "or");
+			assert.strictEqual(
+				roundTrip(code),
+				"@supports ((display:grid) or (display:flex)){.a{color:red}}",
+			);
+		});
+
+		for (const fn of ["style(--theme: dark)", "scroll-state(stuck: top)"]) {
+			it(`should parse container ${fn} as general enclosed without recovery (#6)`, () => {
+				const code = `@container ${fn} { .a { color: red; } }`;
+				const ast = strictParse(code);
+				const term =
+					ast.children.first.prelude.children.first.children.first;
+
+				assert.strictEqual(term.type, "GeneralEnclosed");
+				assert.strictEqual(term.kind, "container");
+				assert.strictEqual(term.function, fn.slice(0, fn.indexOf("(")));
+				roundTrip(code);
+			});
+		}
+
 		const queries = [
 			[
 				"@media (min-width: $w) { .a { b: c; } }",
@@ -857,7 +1270,6 @@ describe("SCSS", () => {
 			"@media screen and (min-width: 100px), print { .a > .b + .c ~ .d { color: red; } }",
 			":root { --x: 1px; --y: { a: b }; }",
 			'a:not(.b):nth-child(2n+1)::after { content: "x"; }',
-			"@supports (display: grid) and (not (display: inline-grid)) { .a { color: red } }",
 			'@font-face { font-family: "X"; src: url(a.woff2) format("woff2"); }',
 			"@keyframes spin { from { transform: rotate(0) } to { transform: rotate(360deg) } }",
 			".hack { *zoom: 1; }",
@@ -881,18 +1293,20 @@ describe("SCSS", () => {
 		it("should recover from the same things as plain CSS", () => {
 			const scssErrors = [];
 			const cssErrors = [];
+			const code = `${css}\n.broken { color red; }`;
 
-			parse(css, {
+			parse(code, {
 				onParseError(error) {
 					scssErrors.push(error.message);
 				},
 			});
-			cssParse(css, {
+			cssParse(code, {
 				onParseError(error) {
 					cssErrors.push(error.message);
 				},
 			});
 
+			assert.ok(scssErrors.length > 0);
 			assert.deepStrictEqual(scssErrors, cssErrors);
 		});
 	});

@@ -9,6 +9,11 @@
 //-----------------------------------------------------------------------------
 
 import { tokenTypes } from "../token-types.js";
+import {
+	EQUALS_SIGN,
+	GREATER_THAN_SIGN,
+	LESS_THAN_SIGN,
+} from "../char-codes.js";
 import { isInterpolationStart, isVariableStart } from "../util/parser.js";
 
 //-----------------------------------------------------------------------------
@@ -28,6 +33,77 @@ const likelyFeatureToken = new Set([
 	tokenTypes.RightParenthesis,
 	tokenTypes.EOF,
 ]);
+
+const comparisonSigns = [LESS_THAN_SIGN, GREATER_THAN_SIGN, EQUALS_SIGN];
+
+/**
+ * Determines if a function call is followed by a comparison, making it the
+ * first operand of a range such as `(calc(1px + 2px) < width)`.
+ * @this {any}
+ * @param {number} offset The offset of the function token.
+ * @returns {boolean} `true` when the function starts a range.
+ */
+function isRangeOperand(offset) {
+	const closeIndex = this.getBlockTokenPairIndex(this.tokenIndex + offset);
+
+	if (closeIndex === -1) {
+		return false;
+	}
+
+	let next = closeIndex - this.tokenIndex + 1;
+
+	while (
+		this.lookupType(next) === tokenTypes.WhiteSpace ||
+		this.lookupType(next) === tokenTypes.Comment
+	) {
+		next++;
+	}
+
+	return comparisonSigns.some(code => this.isDelim(code, next));
+}
+
+/**
+ * Determines if a parenthesis opens a grouped condition, which is one that
+ * starts with `((`, `(fn(` without a following comparison, `(not (`, or
+ * `(not fn(`. These can't be a feature, range, or declaration, so trying
+ * those first would only report spurious errors.
+ * @this {any}
+ * @returns {boolean} `true` when a grouped condition starts here.
+ */
+function isGroupedConditionStart() {
+	switch (this.lookupTypeNonSC(1)) {
+		case tokenTypes.LeftParenthesis:
+			return true;
+
+		case tokenTypes.Function:
+			return !isRangeOperand.call(this, this.lookupOffsetNonSC(1));
+
+		case tokenTypes.Ident: {
+			const nextType = this.lookupTypeNonSC(2);
+
+			return (
+				nextType === tokenTypes.LeftParenthesis ||
+				nextType === tokenTypes.Function
+			);
+		}
+
+		default:
+			return false;
+	}
+}
+
+/**
+ * Parses a grouped condition without first attempting a declaration or range.
+ * @this {any}
+ * @param {string} kind The kind of condition being parsed.
+ * @returns {any} The nested condition.
+ */
+function nestedCondition(kind) {
+	this.eat(tokenTypes.LeftParenthesis);
+	const result = this.Condition(kind);
+	this.eat(tokenTypes.RightParenthesis);
+	return result;
+}
 
 /**
  * Parses a parenthesized term as either a feature or a feature range.
@@ -73,6 +149,8 @@ export const structure = {
 			"FeatureFunction",
 			"FeatureRange",
 			"SupportsDeclaration",
+			"Condition",
+			"GeneralEnclosed",
 			"ScssVariable",
 			"ScssInterpolation",
 		],
@@ -117,6 +195,16 @@ export function parse(kind = "media") {
 				break scan;
 
 			case tokenTypes.LeftParenthesis: {
+				if (isGroupedConditionStart.call(this)) {
+					children.push(
+						this.parseWithFallback(
+							() => nestedCondition.call(this, kind),
+							() => this.GeneralEnclosed(kind),
+						),
+					);
+					break;
+				}
+
 				let term = this.parseWithFallback(
 					() => parentheses[kind].call(this, kind),
 					() => null,
@@ -124,15 +212,7 @@ export function parse(kind = "media") {
 
 				if (!term) {
 					term = this.parseWithFallback(
-						() => {
-							this.eat(tokenTypes.LeftParenthesis);
-
-							const result = this.Condition(kind);
-
-							this.eat(tokenTypes.RightParenthesis);
-
-							return result;
-						},
+						() => nestedCondition.call(this, kind),
 						() => this.GeneralEnclosed(kind),
 					);
 				}
@@ -142,16 +222,25 @@ export function parse(kind = "media") {
 			}
 
 			case tokenTypes.Function: {
-				let term = this.parseWithFallback(
-					() => this.FeatureFunction(kind),
-					() => null,
+				const functionName = this.substring(
+					this.tokenStart,
+					this.tokenEnd - 1,
+				).toLowerCase();
+
+				/*
+				 * Container functions stay general-enclosed: a declaration can't
+				 * represent SCSS forms such as `style(--flag)` or `style($query)`.
+				 * Other registered features, like `selector()`, stay structured.
+				 */
+				const isFeature =
+					kind !== "container" &&
+					typeof this.features[kind]?.[functionName] === "function";
+
+				children.push(
+					isFeature
+						? this.FeatureFunction(kind)
+						: this.GeneralEnclosed(kind),
 				);
-
-				if (!term) {
-					term = this.GeneralEnclosed(kind);
-				}
-
-				children.push(term);
 				break;
 			}
 

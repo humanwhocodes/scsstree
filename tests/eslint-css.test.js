@@ -70,6 +70,52 @@ describe("ESLint CSS plugin compatibility", () => {
 		);
 	});
 
+	it("should preserve rules after unmatched quotes and CSS constructs in line comments (#2)", async () => {
+		const code = '// unmatched " quote\r\n// /*\n.a { color: red; }';
+		const ast = strictParse(code, { positions: true });
+
+		assert.strictEqual(generate(ast), ".a{color:red}");
+		assert.strictEqual(
+			generate(strictParse(generate(ast))),
+			".a{color:red}",
+		);
+		assert.strictEqual(
+			ast.children.first.loc.start.offset,
+			code.indexOf(".a"),
+		);
+
+		const eslint = new ESLint({
+			overrideConfigFile: true,
+			overrideConfig: [
+				{
+					files: ["**/*.scss"],
+					plugins: { css },
+					language: "css/css",
+					languageOptions: { customSyntax: scss },
+					rules: { "css/no-invalid-at-rules": "error" },
+				},
+			],
+		});
+		const [result] = await eslint.lintText(code, { filePath: "test.scss" });
+
+		assert.deepStrictEqual(result.messages, []);
+	});
+
+	it("should preserve complete interpolated class names and selector boundaries (#3)", () => {
+		const code = ".#{$prefix}-#{$name} > .child { color: red; }";
+		const ast = strictParse(code, { positions: true });
+		const selector = ast.children.first.prelude.children.first;
+		const first = selector.children.first;
+		const output = generate(ast);
+
+		assert.strictEqual(first.type, "ClassSelector");
+		assert.strictEqual(first.name, "#{$prefix}-#{$name}");
+		assert.strictEqual(first.loc.end.offset, code.indexOf(" >"));
+		assert.strictEqual(selector.children.last.name, "child");
+		assert.strictEqual(output, ".#{$prefix}-#{$name}>.child{color:red}");
+		assert.strictEqual(generate(strictParse(output)), output);
+	});
+
 	const names = [
 		"--#{$prefix}form-invalid-border-color",
 		"--#{$prefix}2-color",
@@ -206,11 +252,128 @@ describe("ESLint CSS plugin compatibility", () => {
 		}
 	});
 
+	for (const query of [
+		"media (min-width: 10px)",
+		"supports (display: grid)",
+		"container (min-width: 10px)",
+	]) {
+		it(`should parse mixed conditional blocks with definition-only input: @${query} (#4)`, () => {
+			const code = `.parent { @${query} { color: blue; .child { color: red; } } }`;
+			const ast = strictParse(code);
+			const block = ast.children.first.block.children.first.block;
+			const output = generate(ast);
+
+			assert.deepStrictEqual(
+				block.children.toArray().map(node => node.type),
+				["Declaration", "Rule"],
+			);
+			assert.strictEqual(
+				block.children.last.prelude.children.first.children.first.name,
+				"child",
+			);
+			assert.strictEqual(generate(strictParse(output)), output);
+		});
+	}
+
 	it("should still parse a CSS @import", () => {
 		assert.strictEqual(
 			generate(parse('@import url("a.css") layer(base) screen;')),
 			"@import url(a.css)layer(base) screen;",
 		);
+	});
+
+	for (const [query, nodeType] of [
+		["supports ((display: grid) or (display: flex))", "Condition"],
+		["container style(--theme: dark)", "GeneralEnclosed"],
+		["container scroll-state(stuck: top)", "GeneralEnclosed"],
+		["container (min(100px, 10vw) <= width)", "FeatureRange"],
+	]) {
+		it(`should parse condition grammar with definition-only input: @${query} (#5/#6)`, async () => {
+			const code = `@${query} { .a { color: red; } }`;
+			const ast = strictParse(code);
+			const term =
+				ast.children.first.prelude.children.first.children.first;
+			const output = generate(ast);
+
+			assert.strictEqual(term.type, nodeType);
+			assert.strictEqual(lexer.checkStructure(ast), false);
+			assert.strictEqual(generate(strictParse(output)), output);
+
+			const eslint = new ESLint({
+				overrideConfigFile: true,
+				overrideConfig: [
+					{
+						files: ["**/*.scss"],
+						plugins: { css },
+						language: "css/css",
+						languageOptions: { customSyntax: scss },
+						rules: { "css/no-invalid-at-rules": "error" },
+					},
+				],
+			});
+			const [result] = await eslint.lintText(code, {
+				filePath: "test.scss",
+			});
+
+			assert.deepStrictEqual(result.messages, []);
+		});
+	}
+
+	for (const code of [
+		'// unmatched " quote\n.a { color: red; }',
+		"//****\n// Section\n//****\n.a { color: red; }",
+		".#{$prefix}-#{$name} { color: red; }",
+		".#{$fa-css-prefix}-2x { color: red; }",
+		".#{$prefix}-2\u00e9:hover { color: red; }",
+		String.raw`.#{$prefix}-2\78:hover { color: red; }`,
+		String.raw`.#{$prefix}-2\000078 :hover { color: red; }`,
+		".#{$prefix}1e2\u00e9.b { color: red; }",
+		".parent { @media (min-width: 10px) { color: blue; .child { color: red; } } }",
+		".parent { @supports (display: grid) { color: blue; .child { color: red; } } }",
+		".parent { @container (min-width: 10px) { color: blue; .child { color: red; } } }",
+		"@supports ((display: grid) or (display: flex)) { .a { color: red; } }",
+		"@container theme style(--theme: dark) { .a { color: red; } }",
+		"@container scroll-state(stuck: top) { .a { color: red; } }",
+		"@media (calc(1px + 2px) < width) { .a { color: red; } }",
+		"@container (min(100px, 10vw) <= width) { .a { color: red; } }",
+	]) {
+		it(`should produce identical ASTs through both syntax input shapes: ${code}`, () => {
+			const direct = fork(scss);
+			const definitionOnly = fork(scss(definitionSyntaxData));
+			const options = {
+				positions: true,
+				onParseError(error) {
+					throw error;
+				},
+			};
+
+			assert.deepStrictEqual(
+				direct.toPlainObject(direct.parse(code, options)),
+				definitionOnly.toPlainObject(
+					definitionOnly.parse(code, options),
+				),
+			);
+		});
+	}
+
+	it("should use the same conditional at-rule preludes for both input shapes", () => {
+		let fullSyntax;
+
+		fork(prev => {
+			fullSyntax = prev;
+			return scss(prev);
+		});
+
+		const direct = scss(fullSyntax);
+		const definitionOnly = scss(definitionSyntaxData);
+
+		for (const name of ["media", "supports", "container"]) {
+			assert.strictEqual(
+				direct.atrule[name].parse.prelude,
+				definitionOnly.atrule[name].parse.prelude,
+				`@${name} uses a different prelude parser`,
+			);
+		}
 	});
 
 	it("should parse the fixture without errors", async () => {

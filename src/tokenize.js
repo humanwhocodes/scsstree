@@ -2,10 +2,11 @@
  * @fileoverview SCSS-aware tokenizer.
  *
  * SCSS supports single-line comments (`// comment`) that CSS doesn't have. The
- * CSS tokenizer emits those as two `Delim` tokens followed by whatever happens
- * to be on the rest of the line, so this tokenizer runs the CSS tokenizer first
- * and then folds those token runs into a single `Comment` token. Everything
- * else is passed through untouched.
+ * CSS tokenizer would read the rest of such a line as CSS, where an unmatched
+ * quote, a `url(`, or a `/*` (including the one in `//*`) can swallow the
+ * lines that follow. So whenever the CSS tokenizer reaches a `//`, this
+ * tokenizer stops it, emits the rest of the line as a single `Comment` token,
+ * and restarts it at the newline. Everything else is passed through untouched.
  * @author Nicholas C. Zakas
  */
 
@@ -35,12 +36,32 @@ import {
 //-----------------------------------------------------------------------------
 
 /**
+ * Thrown from the token callback to stop the CSS tokenizer at a line comment.
+ */
+const STOP = Symbol("stop");
+
+/**
  * Determines if a character code is a newline.
  * @param {number} code The character code to check.
  * @returns {boolean} `true` if the character code is a newline.
  */
 function isNewline(code) {
 	return code === LINE_FEED || code === CARRIAGE_RETURN || code === FORM_FEED;
+}
+
+/**
+ * Finds the end of a line comment, which is the offset of the next newline or
+ * the end of the source.
+ * @param {string} source The source text.
+ * @param {number} offset The offset to start searching at.
+ * @returns {number} The offset where the comment ends.
+ */
+function findLineEnd(source, offset) {
+	while (offset < source.length && !isNewline(source.charCodeAt(offset))) {
+		offset++;
+	}
+
+	return offset;
 }
 
 //-----------------------------------------------------------------------------
@@ -54,71 +75,48 @@ function isNewline(code) {
  */
 export function createScssTokenizer(baseTokenize) {
 	return function scssTokenize(source, onToken) {
-		/** @type {Array<number>} */
-		const types = [];
+		let offset = 0;
 
-		/** @type {Array<number>} */
-		const starts = [];
+		do {
+			offset = tokenizeFrom(offset);
+		} while (offset < source.length);
 
-		/** @type {Array<number>} */
-		const ends = [];
+		/**
+		 * Runs the CSS tokenizer from an offset until the end of the source or
+		 * the end of the next line comment, whichever comes first.
+		 * @param {number} from The offset to start tokenizing at.
+		 * @returns {number} The offset to continue tokenizing from.
+		 */
+		function tokenizeFrom(from) {
+			let next = source.length;
 
-		baseTokenize(source, (type, start, end) => {
-			types.push(type);
-			starts.push(start);
-			ends.push(end);
-		});
+			try {
+				baseTokenize(
+					from === 0 ? source : source.slice(from),
+					(type, start, end) => {
+						start += from;
+						end += from;
 
-		for (let i = 0; i < types.length; i++) {
-			const isLineCommentStart =
-				types[i] === tokenTypes.Delim &&
-				types[i + 1] === tokenTypes.Delim &&
-				starts[i + 1] === ends[i] &&
-				source.charCodeAt(starts[i]) === SOLIDUS &&
-				source.charCodeAt(starts[i + 1]) === SOLIDUS;
+						if (
+							type === tokenTypes.Delim &&
+							source.charCodeAt(start) === SOLIDUS &&
+							source.charCodeAt(start + 1) === SOLIDUS
+						) {
+							next = findLineEnd(source, start + 2);
+							onToken(tokenTypes.Comment, start, next);
+							throw STOP;
+						}
 
-			if (!isLineCommentStart) {
-				onToken(types[i], starts[i], ends[i]);
-				continue;
-			}
-
-			/*
-			 * Everything from `//` up to (but not including) the next newline is
-			 * part of the comment. The newline always lives inside a whitespace
-			 * token, so find the first whitespace token containing one and split
-			 * it at that point.
-			 */
-			const commentStart = starts[i];
-			let commentEnd = source.length;
-			let index = i + 2;
-
-			for (; index < types.length; index++) {
-				if (types[index] !== tokenTypes.WhiteSpace) {
-					continue;
-				}
-
-				let offset = starts[index];
-
-				while (
-					offset < ends[index] &&
-					!isNewline(source.charCodeAt(offset))
-				) {
-					offset++;
-				}
-
-				if (offset < ends[index]) {
-					commentEnd = offset;
-					break;
+						onToken(type, start, end);
+					},
+				);
+			} catch (error) {
+				if (error !== STOP) {
+					throw error;
 				}
 			}
 
-			onToken(tokenTypes.Comment, commentStart, commentEnd);
-
-			if (index < types.length) {
-				onToken(tokenTypes.WhiteSpace, commentEnd, ends[index]);
-			}
-
-			i = index;
+			return next;
 		}
 	};
 }

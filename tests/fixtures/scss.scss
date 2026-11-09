@@ -18,7 +18,11 @@ $breakpoints: (
 	"large": 992px,
 );
 
+//****************************************
 // Placeholder selectors
+//****************************************
+// unmatched " quote
+// unmatched ' quote
 %button-base {
 	border: 0;
 	cursor: pointer;
@@ -64,6 +68,18 @@ $breakpoints: (
 }
 
 // Nesting, parent selectors, and interpolation
+.#{$prefix}-#{$name} {
+	color: $primary;
+}
+
+.#{$prefix}-2x {
+	font-size: 2em;
+}
+
+.#{$prefix}-2\78:hover {
+	color: $primary;
+}
+
 .card {
 	@extend %button-base;
 	@include theme($theme: DarkGray);
@@ -107,6 +123,22 @@ $breakpoints: (
 }
 
 .conditional {
+	@supports (display: grid) {
+		display: grid;
+
+		.child {
+			color: $primary;
+		}
+	}
+
+	@container (min-width: 10px) {
+		color: blue;
+
+		.child {
+			color: red;
+		}
+	}
+
 	@if $primary == #333 {
 		color: red;
 	} @else if $primary != #444 {
@@ -129,6 +161,30 @@ $breakpoints: (
 }
 
 // Plain CSS still works
+@supports ((display: grid) or (display: flex)) {
+	.layout {
+		display: grid;
+	}
+}
+
+@container style(--theme: dark) {
+	.themed {
+		color: $primary;
+	}
+}
+
+@container scroll-state(stuck: top) {
+	.sticky {
+		color: red;
+	}
+}
+
+@media (calc(100px + 2em) <= width) {
+	.wide {
+		color: red;
+	}
+}
+
 @media screen and (min-width: 400px), print {
 	.a[data-x="y"]:not(.b)::after {
 		content: "";
