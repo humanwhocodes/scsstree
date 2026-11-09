@@ -66,6 +66,10 @@ $breakpoints: (
 }
 
 // Nesting, parent selectors, and interpolation
+.#{$prefix}-#{$name} {
+	color: $primary;
+}
+
 .card {
 	@extend %button-base;
 	@include theme($theme: DarkGray);

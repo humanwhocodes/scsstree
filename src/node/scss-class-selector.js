@@ -10,7 +10,7 @@
 //-----------------------------------------------------------------------------
 
 import { tokenTypes } from "../token-types.js";
-import { FULL_STOP } from "../char-codes.js";
+import { FULL_STOP, HYPHEN_MINUS } from "../char-codes.js";
 import { isInterpolationStart, skipInterpolation } from "../util/parser.js";
 
 //-----------------------------------------------------------------------------
@@ -47,10 +47,16 @@ export function parse() {
 	do {
 		if (isInterpolationStart(this)) {
 			skipInterpolation(this);
+		} else if (this.tokenStart > nameStart && this.isDelim(HYPHEN_MINUS)) {
+			this.next();
 		} else {
 			this.eat(tokenTypes.Ident);
 		}
-	} while (this.tokenType === tokenTypes.Ident || isInterpolationStart(this));
+	} while (
+		this.tokenType === tokenTypes.Ident ||
+		isInterpolationStart(this) ||
+		this.isDelim(HYPHEN_MINUS)
+	);
 
 	return {
 		type: name,

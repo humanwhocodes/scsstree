@@ -100,6 +100,21 @@ describe("ESLint CSS plugin compatibility", () => {
 		assert.deepStrictEqual(result.messages, []);
 	});
 
+	it("should preserve complete interpolated class names and selector boundaries (#3)", () => {
+		const code = ".#{$prefix}-#{$name} > .child { color: red; }";
+		const ast = strictParse(code, { positions: true });
+		const selector = ast.children.first.prelude.children.first;
+		const first = selector.children.first;
+		const output = generate(ast);
+
+		assert.strictEqual(first.type, "ClassSelector");
+		assert.strictEqual(first.name, "#{$prefix}-#{$name}");
+		assert.strictEqual(first.loc.end.offset, code.indexOf(" >"));
+		assert.strictEqual(selector.children.last.name, "child");
+		assert.strictEqual(output, ".#{$prefix}-#{$name}>.child{color:red}");
+		assert.strictEqual(generate(strictParse(output)), output);
+	});
+
 	const names = [
 		"--#{$prefix}form-invalid-border-color",
 		"--#{$prefix}2-color",

@@ -545,6 +545,47 @@ describe("SCSS", () => {
 	});
 
 	describe("Selectors", () => {
+		for (const selector of [
+			".#{$prefix}-#{$name} .child",
+			".#{$prefix}-#{$name}>.child",
+			".#{$prefix}-#{$name}:hover",
+			".#{$prefix}-#{$name}/**/.child",
+			".#{$prefix}-",
+		]) {
+			it(`should preserve selector boundaries around ${selector} (#3)`, () => {
+				const code = `${selector} { color: red; }`;
+				const first = findNode(code, "ClassSelector");
+
+				assert.strictEqual(
+					first.name,
+					selector.endsWith("-")
+						? "#{$prefix}-"
+						: "#{$prefix}-#{$name}",
+				);
+				roundTrip(code);
+			});
+		}
+
+		for (const selector of [".-", ".#{$name}!", ".#{$name}-#{$other"]) {
+			it(`should reject incomplete class selector ${selector} (#3)`, () => {
+				assert.throws(() => strictParse(`${selector} { color: red; }`));
+			});
+		}
+
+		for (const name of [
+			"#{$prefix}-#{$name}",
+			"#{$prefix}-large",
+			"icon-#{$name}-#{$size}",
+		]) {
+			it(`should preserve interpolated class name ${name} without recovery (#3)`, () => {
+				const code = `.${name} { color: red; }`;
+				const node = findNode(code, "ClassSelector");
+
+				assert.strictEqual(node.name, name);
+				assert.strictEqual(roundTrip(code), `.${name}{color:red}`);
+			});
+		}
+
 		it("should parse a placeholder selector", () => {
 			assert.deepStrictEqual(
 				findNode("%button { border: 0; }", "ScssPlaceholderSelector"),
