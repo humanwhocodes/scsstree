@@ -82,40 +82,56 @@ export function createScssTokenizer(baseTokenize) {
 				continue;
 			}
 
-			/*
-			 * Everything from `//` up to (but not including) the next newline is
-			 * part of the comment. The newline always lives inside a whitespace
-			 * token, so find the first whitespace token containing one and split
-			 * it at that point.
-			 */
 			const commentStart = starts[i];
-			let commentEnd = source.length;
+			let commentEnd = ends[i + 1];
+
+			while (
+				commentEnd < source.length &&
+				!isNewline(source.charCodeAt(commentEnd))
+			) {
+				commentEnd++;
+			}
+
 			let index = i + 2;
 
-			for (; index < types.length; index++) {
-				if (types[index] !== tokenTypes.WhiteSpace) {
-					continue;
-				}
-
-				let offset = starts[index];
-
-				while (
-					offset < ends[index] &&
-					!isNewline(source.charCodeAt(offset))
-				) {
-					offset++;
-				}
-
-				if (offset < ends[index]) {
-					commentEnd = offset;
-					break;
-				}
+			while (index < types.length && ends[index] <= commentEnd) {
+				index++;
 			}
 
 			onToken(tokenTypes.Comment, commentStart, commentEnd);
 
 			if (index < types.length) {
-				onToken(tokenTypes.WhiteSpace, commentEnd, ends[index]);
+				let newlineEnd = commentEnd + 1;
+
+				if (
+					source.charCodeAt(commentEnd) === CARRIAGE_RETURN &&
+					source.charCodeAt(newlineEnd) === LINE_FEED
+				) {
+					newlineEnd++;
+				}
+
+				if (
+					types[index] === tokenTypes.WhiteSpace ||
+					ends[index] === newlineEnd
+				) {
+					onToken(tokenTypes.WhiteSpace, commentEnd, ends[index]);
+				} else {
+					/*
+					 * A string, URL, or block comment inside the line comment
+					 * may have consumed subsequent lines. Retokenize that suffix
+					 * outside the discarded CSS construct, preserving offsets.
+					 */
+					types.length = starts.length = ends.length = index;
+					baseTokenize(
+						source.slice(commentEnd),
+						(type, start, end) => {
+							types.push(type);
+							starts.push(commentEnd + start);
+							ends.push(commentEnd + end);
+						},
+					);
+					index--;
+				}
 			}
 
 			i = index;

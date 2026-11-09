@@ -70,6 +70,36 @@ describe("ESLint CSS plugin compatibility", () => {
 		);
 	});
 
+	it("should preserve rules after unmatched quotes and CSS constructs in line comments (#2)", async () => {
+		const code = '// unmatched " quote\r\n// /*\n.a { color: red; }';
+		const ast = strictParse(code, { positions: true });
+
+		assert.strictEqual(generate(ast), ".a{color:red}");
+		assert.strictEqual(
+			generate(strictParse(generate(ast))),
+			".a{color:red}",
+		);
+		assert.strictEqual(
+			ast.children.first.loc.start.offset,
+			code.indexOf(".a"),
+		);
+
+		const eslint = new ESLint({
+			overrideConfigFile: true,
+			overrideConfig: [
+				{
+					files: ["**/*.scss"],
+					plugins: { css },
+					language: "css/css",
+					languageOptions: { customSyntax: scss },
+				},
+			],
+		});
+		const [result] = await eslint.lintText(code, { filePath: "test.scss" });
+
+		assert.deepStrictEqual(result.messages, []);
+	});
+
 	const names = [
 		"--#{$prefix}form-invalid-border-color",
 		"--#{$prefix}2-color",

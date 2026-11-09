@@ -104,6 +104,56 @@ describe("SCSS", () => {
 	});
 
 	describe("Comments", () => {
+		for (const quote of ['"', "'"]) {
+			for (const newline of ["\n", "\r\n", "\r", "\f"]) {
+				it(`should preserve the selector after an unmatched ${quote} in a line comment with ${JSON.stringify(newline)} (#2)`, () => {
+					const comment = `// unmatched ${quote} quote`;
+					const code = `${comment}${newline}.a { color: red; }`;
+					const comments = [];
+					const ast = strictParse(code, {
+						positions: true,
+						onComment(value) {
+							comments.push(value);
+						},
+					});
+					assert.ok(
+						ast.children.first,
+						"The rule after the comment must be preserved",
+					);
+					const selector =
+						ast.children.first.prelude.children.first.children
+							.first;
+
+					assert.deepStrictEqual(comments, [
+						` unmatched ${quote} quote`,
+					]);
+					assert.strictEqual(selector.type, "ClassSelector");
+					assert.strictEqual(selector.name, "a");
+					assert.strictEqual(
+						selector.loc.start.offset,
+						comment.length + newline.length,
+					);
+					assert.strictEqual(
+						selector.loc.end.offset,
+						comment.length + newline.length + 2,
+					);
+					assert.strictEqual(generate(ast), ".a{color:red}");
+					assert.strictEqual(roundTrip(code), ".a{color:red}");
+				});
+			}
+		}
+
+		for (const text of ["/*", "url(", '"escaped\\', "'escaped\\"]) {
+			it(`should preserve subsequent lines after ${JSON.stringify(text)} inside a line comment (#2)`, () => {
+				const code = `// ${text}\n// another " comment\n.a { color: red; }\n.b { color: blue; }`;
+
+				assert.strictEqual(
+					roundTrip(code),
+					".a{color:red}.b{color:blue}",
+				);
+			});
+		}
+
 		it("should treat // as a comment through the end of the line", () => {
 			assert.strictEqual(
 				roundTrip("// comment\n.a { color: red; }"),
