@@ -719,6 +719,67 @@ describe("SCSS", () => {
 	});
 
 	describe("At-rules", () => {
+		for (const query of [
+			"media (min-width: 10px)",
+			"supports (display: grid)",
+			"container (min-width: 10px)",
+		]) {
+			it(`should preserve top-level rule blocks for @${query} (#4)`, () => {
+				const code = `@${query} { .child { color: red; } }`;
+				const ast = strictParse(code);
+
+				assert.strictEqual(
+					ast.children.first.block.children.first.type,
+					"Rule",
+				);
+				roundTrip(code);
+			});
+
+			it(`should preserve mixed and recursively nested blocks for @${query} inside a mixin (#4)`, () => {
+				const code = `@mixin m { @${query} { $color: red; color: $color; &:hover { color: blue; } @supports (display: flex) { .child { color: red; } } } }`;
+				const ast = strictParse(code);
+				const block = ast.children.first.block.children.first.block;
+
+				assert.deepStrictEqual(
+					block.children.toArray().map(node => node.type),
+					[
+						"ScssVariableDeclaration",
+						"Declaration",
+						"Rule",
+						"Atrule",
+					],
+				);
+				assert.strictEqual(
+					block.children.last.block.children.first.type,
+					"Rule",
+				);
+				roundTrip(code);
+			});
+		}
+
+		for (const query of [
+			"media (min-width: 10px)",
+			"supports (display: grid)",
+			"container (min-width: 10px)",
+		]) {
+			it(`should preserve declarations and nested rules inside @${query} (#4)`, () => {
+				const code = `.parent { @${query} { color: blue; .child { color: red; } } }`;
+				const ast = strictParse(code);
+				const block = ast.children.first.block.children.first.block;
+
+				assert.deepStrictEqual(
+					block.children.toArray().map(node => node.type),
+					["Declaration", "Rule"],
+				);
+				assert.strictEqual(
+					block.children.last.prelude.children.first.children.first
+						.name,
+					"child",
+				);
+				roundTrip(code);
+			});
+		}
+
 		const atrules = [
 			['@use "sass:math";', '@use "sass:math";'],
 			['@use "x" as y;', '@use "x"as y;'],

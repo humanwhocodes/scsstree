@@ -113,6 +113,22 @@ $breakpoints: (
 }
 
 .conditional {
+	@supports (display: grid) {
+		display: grid;
+
+		.child {
+			color: $primary;
+		}
+	}
+
+	@container (min-width: 10px) {
+		color: blue;
+
+		.child {
+			color: red;
+		}
+	}
+
 	@if $primary == #333 {
 		color: red;
 	} @else if $primary != #444 {

@@ -251,6 +251,29 @@ describe("ESLint CSS plugin compatibility", () => {
 		}
 	});
 
+	for (const query of [
+		"media (min-width: 10px)",
+		"supports (display: grid)",
+		"container (min-width: 10px)",
+	]) {
+		it(`should parse mixed conditional blocks with definition-only input: @${query} (#4)`, () => {
+			const code = `.parent { @${query} { color: blue; .child { color: red; } } }`;
+			const ast = strictParse(code);
+			const block = ast.children.first.block.children.first.block;
+			const output = generate(ast);
+
+			assert.deepStrictEqual(
+				block.children.toArray().map(node => node.type),
+				["Declaration", "Rule"],
+			);
+			assert.strictEqual(
+				block.children.last.prelude.children.first.children.first.name,
+				"child",
+			);
+			assert.strictEqual(generate(strictParse(output)), output);
+		});
+	}
+
 	it("should still parse a CSS @import", () => {
 		assert.strictEqual(
 			generate(parse('@import url("a.css") layer(base) screen;')),

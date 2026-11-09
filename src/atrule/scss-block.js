@@ -12,6 +12,20 @@
 //-----------------------------------------------------------------------------
 
 /**
+ * Preserves the enclosing context when parsing a conditional at-rule block.
+ * @this {any}
+ * @param {boolean} [nested] Whether the at-rule is inside a declaration block.
+ * @param {{allowNestedRules?: boolean}} [options] Parsing options.
+ * @returns {any} The `Block` node.
+ */
+export function conditionalBlock(
+	nested = false,
+	{ allowNestedRules = false } = {},
+) {
+	return this.Block(nested, { allowNestedRules });
+}
+
+/**
  * Parses a block that may contain declarations, nested rules, and at-rules.
  * @this {any}
  * @returns {any} The `Block` node.
