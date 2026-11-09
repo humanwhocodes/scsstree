@@ -154,6 +154,40 @@ describe("SCSS", () => {
 			});
 		}
 
+		it("should preserve subsequent lines after //* banner comments", () => {
+			const code =
+				"//****\n// Section\n//****\n.a { color: red; }\n.b { color: blue; }";
+			const comments = [];
+			const ast = strictParse(code, {
+				positions: true,
+				onComment(value) {
+					comments.push(value);
+				},
+			});
+
+			assert.deepStrictEqual(comments, ["****", " Section", "****"]);
+			assert.strictEqual(
+				ast.children.first.loc.start.offset,
+				code.indexOf(".a"),
+			);
+			assert.strictEqual(
+				ast.children.last.loc.start.offset,
+				code.indexOf(".b"),
+			);
+			assert.strictEqual(roundTrip(code), ".a{color:red}.b{color:blue}");
+		});
+
+		for (const code of [
+			"//* banner\n.a { color: red; }",
+			"//* closed */\n.a { color: red; }",
+			".a { //* note\n color: red; }",
+			".a { color: red; }\n//*",
+		]) {
+			it(`should treat //* as a line comment in ${JSON.stringify(code)}`, () => {
+				assert.strictEqual(roundTrip(code), ".a{color:red}");
+			});
+		}
+
 		it("should treat // as a comment through the end of the line", () => {
 			assert.strictEqual(
 				roundTrip("// comment\n.a { color: red; }"),

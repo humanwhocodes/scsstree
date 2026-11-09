@@ -318,6 +318,7 @@ describe("ESLint CSS plugin compatibility", () => {
 
 	for (const code of [
 		'// unmatched " quote\n.a { color: red; }',
+		"//****\n// Section\n//****\n.a { color: red; }",
 		".#{$prefix}-#{$name} { color: red; }",
 		".parent { @media (min-width: 10px) { color: blue; .child { color: red; } } }",
 		".parent { @supports (display: grid) { color: blue; .child { color: red; } } }",
