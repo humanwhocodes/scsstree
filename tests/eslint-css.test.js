@@ -92,6 +92,7 @@ describe("ESLint CSS plugin compatibility", () => {
 					plugins: { css },
 					language: "css/css",
 					languageOptions: { customSyntax: scss },
+					rules: { "css/no-invalid-at-rules": "error" },
 				},
 			],
 		});
@@ -285,6 +286,7 @@ describe("ESLint CSS plugin compatibility", () => {
 		["supports ((display: grid) or (display: flex))", "Condition"],
 		["container style(--theme: dark)", "GeneralEnclosed"],
 		["container scroll-state(stuck: top)", "GeneralEnclosed"],
+		["container (min(100px, 10vw) <= width)", "FeatureRange"],
 	]) {
 		it(`should parse condition grammar with definition-only input: @${query} (#5/#6)`, async () => {
 			const code = `@${query} { .a { color: red; } }`;
@@ -305,6 +307,7 @@ describe("ESLint CSS plugin compatibility", () => {
 						plugins: { css },
 						language: "css/css",
 						languageOptions: { customSyntax: scss },
+						rules: { "css/no-invalid-at-rules": "error" },
 					},
 				],
 			});
@@ -320,6 +323,7 @@ describe("ESLint CSS plugin compatibility", () => {
 		'// unmatched " quote\n.a { color: red; }',
 		"//****\n// Section\n//****\n.a { color: red; }",
 		".#{$prefix}-#{$name} { color: red; }",
+		".#{$fa-css-prefix}-2x { color: red; }",
 		".parent { @media (min-width: 10px) { color: blue; .child { color: red; } } }",
 		".parent { @supports (display: grid) { color: blue; .child { color: red; } } }",
 		".parent { @container (min-width: 10px) { color: blue; .child { color: red; } } }",
@@ -347,6 +351,26 @@ describe("ESLint CSS plugin compatibility", () => {
 			);
 		});
 	}
+
+	it("should use the same conditional at-rule preludes for both input shapes", () => {
+		let fullSyntax;
+
+		fork(prev => {
+			fullSyntax = prev;
+			return scss(prev);
+		});
+
+		const direct = scss(fullSyntax);
+		const definitionOnly = scss(definitionSyntaxData);
+
+		for (const name of ["media", "supports", "container"]) {
+			assert.strictEqual(
+				direct.atrule[name].parse.prelude,
+				definitionOnly.atrule[name].parse.prelude,
+				`@${name} uses a different prelude parser`,
+			);
+		}
+	});
 
 	it("should parse the fixture without errors", async () => {
 		const code = await fs.readFile(fixtureFilename, "utf8");

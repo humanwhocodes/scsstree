@@ -146,7 +146,16 @@ describe("SCSS", () => {
 		for (const text of ["/*", "url(", '"escaped\\', "'escaped\\"]) {
 			it(`should preserve subsequent lines after ${JSON.stringify(text)} inside a line comment (#2)`, () => {
 				const code = `// ${text}\n// another " comment\n.a { color: red; }\n.b { color: blue; }`;
+				const ast = strictParse(code, { positions: true });
 
+				assert.strictEqual(
+					ast.children.first.loc.start.offset,
+					code.indexOf(".a"),
+				);
+				assert.strictEqual(
+					ast.children.last.loc.start.offset,
+					code.indexOf(".b"),
+				);
 				assert.strictEqual(
 					roundTrip(code),
 					".a{color:red}.b{color:blue}",
@@ -579,28 +588,67 @@ describe("SCSS", () => {
 	});
 
 	describe("Selectors", () => {
-		for (const selector of [
-			".#{$prefix}-#{$name} .child",
-			".#{$prefix}-#{$name}>.child",
-			".#{$prefix}-#{$name}:hover",
-			".#{$prefix}-#{$name}/**/.child",
-			".#{$prefix}-",
+		for (const [selector, name, types] of [
+			[
+				".#{$prefix}-#{$name} .child",
+				"#{$prefix}-#{$name}",
+				["ClassSelector", "Combinator", "ClassSelector"],
+			],
+			[
+				".#{$prefix}-#{$name}>.child",
+				"#{$prefix}-#{$name}",
+				["ClassSelector", "Combinator", "ClassSelector"],
+			],
+			[
+				".#{$prefix}-#{$name}:hover",
+				"#{$prefix}-#{$name}",
+				["ClassSelector", "PseudoClassSelector"],
+			],
+			[
+				".#{$prefix}-#{$name}/**/.child",
+				"#{$prefix}-#{$name}",
+				["ClassSelector", "ClassSelector"],
+			],
+			[".#{$prefix}-", "#{$prefix}-", ["ClassSelector"]],
+			[
+				".#{$prefix}-2x:hover",
+				"#{$prefix}-2x",
+				["ClassSelector", "PseudoClassSelector"],
+			],
+			[
+				".#{$prefix}-1.b",
+				"#{$prefix}-1",
+				["ClassSelector", "ClassSelector"],
+			],
+			[
+				".#{$prefix}1 > .b",
+				"#{$prefix}1",
+				["ClassSelector", "Combinator", "ClassSelector"],
+			],
 		]) {
 			it(`should preserve selector boundaries around ${selector} (#3)`, () => {
 				const code = `${selector} { color: red; }`;
-				const first = findNode(code, "ClassSelector");
+				const ast = strictParse(code, { positions: true });
+				const children =
+					ast.children.first.prelude.children.first.children.toArray();
 
-				assert.strictEqual(
-					first.name,
-					selector.endsWith("-")
-						? "#{$prefix}-"
-						: "#{$prefix}-#{$name}",
+				assert.deepStrictEqual(
+					children.map(node => node.type),
+					types,
 				);
+				assert.strictEqual(children[0].name, name);
+				assert.strictEqual(children[0].loc.end.offset, name.length + 1);
 				roundTrip(code);
 			});
 		}
 
-		for (const selector of [".-", ".#{$name}!", ".#{$name}-#{$other"]) {
+		for (const selector of [
+			".-",
+			".#{$name}!",
+			".#{$name}-#{$other",
+			".#{$name}-1.5",
+			".#{$name}+1",
+		]) {
 			it(`should reject incomplete class selector ${selector} (#3)`, () => {
 				assert.throws(() => strictParse(`${selector} { color: red; }`));
 			});
@@ -610,6 +658,12 @@ describe("SCSS", () => {
 			"#{$prefix}-#{$name}",
 			"#{$prefix}-large",
 			"icon-#{$name}-#{$size}",
+			"#{$prefix}-1",
+			"#{$fa-css-prefix}-2x",
+			"#{$prefix}1",
+			"#{$prefix}2x",
+			"#{$prefix}-1-#{$name}",
+			"col-#{$breakpoint}-12",
 		]) {
 			it(`should preserve interpolated class name ${name} without recovery (#3)`, () => {
 				const code = `.${name} { color: red; }`;

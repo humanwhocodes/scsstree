@@ -1,5 +1,11 @@
 /**
- * @fileoverview Conditional at-rule preludes for definition-only syntax input.
+ * @fileoverview Conditional at-rule preludes.
+ *
+ * These mirror the `@media`, `@supports`, and `@container` preludes in
+ * `@eslint/css-tree` 4.0.5 (`lib/syntax/atrule/media.js`, `supports.js`, and
+ * `container.js`). The definition-only input doesn't include them, and an
+ * at-rule's `parse` is replaced rather than merged, so both input shapes use
+ * these copies to parse identically whatever CSSTree version is installed.
  * @author Nicholas C. Zakas
  */
 

@@ -72,6 +72,10 @@ $breakpoints: (
 	color: $primary;
 }
 
+.#{$prefix}-2x {
+	font-size: 2em;
+}
+
 .card {
 	@extend %button-base;
 	@include theme($theme: DarkGray);

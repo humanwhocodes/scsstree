@@ -116,8 +116,8 @@ export const scss = prev => {
 		atrule[atruleName] = {
 			...previous.atrule?.[atruleName],
 			parse: {
-				prelude,
 				...previous.atrule?.[atruleName]?.parse,
+				prelude,
 				block: conditionalBlock,
 			},
 		};

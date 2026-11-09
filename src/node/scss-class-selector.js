@@ -1,7 +1,7 @@
 /**
  * @fileoverview Overrides `ClassSelector` parsing to allow interpolation.
- * SCSS permits `.#{$name}` and `.icon-#{$name}-large` wherever a class
- * selector is allowed.
+ * SCSS permits `.#{$name}`, `.icon-#{$name}-large`, and `.#{$prefix}-2x`
+ * wherever a class selector is allowed.
  * @author Nicholas C. Zakas
  */
 
@@ -20,6 +20,35 @@ import { isInterpolationStart, skipInterpolation } from "../util/parser.js";
 /**
  * @import { NodeSyntaxConfig } from "@eslint/css-tree";
  */
+
+//-----------------------------------------------------------------------------
+// Helpers
+//-----------------------------------------------------------------------------
+
+/**
+ * Matches number and dimension tokens made only of characters that can appear
+ * in a class name, such as `-1`, `2x`, or `-2x`, but not `1.5` or `+1`.
+ */
+const namePartPattern = /^-?\d[\w-]*$/u;
+
+/**
+ * Determines if the current token is a number or dimension that continues a
+ * class name, as in `.#{$prefix}-2x`. The CSS tokenizer only produces one of
+ * those inside a class name when it directly follows an interpolation.
+ * @param {any} parser The parser to inspect.
+ * @param {number} nameStart The offset where the class name starts.
+ * @returns {boolean} `true` when the token continues the class name.
+ */
+function isNumericNamePart(parser, nameStart) {
+	return (
+		parser.tokenStart > nameStart &&
+		(parser.tokenType === tokenTypes.Number ||
+			parser.tokenType === tokenTypes.Dimension) &&
+		namePartPattern.test(
+			parser.substring(parser.tokenStart, parser.tokenEnd),
+		)
+	);
+}
 
 //-----------------------------------------------------------------------------
 // Exports
@@ -47,7 +76,10 @@ export function parse() {
 	do {
 		if (isInterpolationStart(this)) {
 			skipInterpolation(this);
-		} else if (this.tokenStart > nameStart && this.isDelim(HYPHEN_MINUS)) {
+		} else if (
+			(this.tokenStart > nameStart && this.isDelim(HYPHEN_MINUS)) ||
+			isNumericNamePart(this, nameStart)
+		) {
 			this.next();
 		} else {
 			this.eat(tokenTypes.Ident);
@@ -55,7 +87,8 @@ export function parse() {
 	} while (
 		this.tokenType === tokenTypes.Ident ||
 		isInterpolationStart(this) ||
-		this.isDelim(HYPHEN_MINUS)
+		this.isDelim(HYPHEN_MINUS) ||
+		isNumericNamePart(this, nameStart)
 	);
 
 	return {
